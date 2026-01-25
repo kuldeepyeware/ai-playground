@@ -112,15 +112,9 @@ export async function POST(
         const promptTokens = usage?.inputTokens ?? 0;
         const completionTokens = usage?.outputTokens ?? 0;
 
-        console.log("promptTokens", promptTokens);
-        console.log("completionTokens", completionTokens);
-        console.log("privider", provider);
-        console.log("pricingKey", GATEWAY_MODELS[provider].pricingKey);
-
         // Calculate cost using the pricing key
         const pricingKey = GATEWAY_MODELS[provider].pricingKey;
         const cost = calculateCost(pricingKey, promptTokens, completionTokens);
-        console.log("cost", cost);
 
         try {
           await prisma.response.create({

@@ -12,6 +12,7 @@ interface CreateChatResult {
 
 export async function createChat(
   initialPrompt?: string,
+  providedChatId?: string,
 ): Promise<CreateChatResult> {
   try {
     const { userId } = await auth();
@@ -22,9 +23,10 @@ export async function createChat(
 
     // Create chat and optionally the first prompt in a transaction
     const result = await prisma.$transaction(async (tx) => {
-      // Create a new chat
+      // Create a new chat with provided ID
       const chat = await tx.chat.create({
         data: {
+          id: providedChatId, // Use frontend-generated ID if provided
           userId: userId,
           title: initialPrompt
             ? initialPrompt.slice(0, 50) +
@@ -50,6 +52,7 @@ export async function createChat(
     });
 
     revalidatePath("/chat");
+    revalidatePath(`/chat/${result.chatId}`);
     return { error: null, chatId: result.chatId, promptId: result.promptId };
   } catch (error) {
     console.error("Error creating chat:", error);

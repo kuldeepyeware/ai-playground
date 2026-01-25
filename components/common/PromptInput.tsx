@@ -8,6 +8,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createChat } from "@/actions/chat";
 import { useSubmitPrompt } from "@/hooks/useSubmitPrompt";
+import { generateId } from "@/lib/id-generator";
 
 interface PromptInputProps {
   chatId?: string;
@@ -15,7 +16,11 @@ interface PromptInputProps {
   disabled?: boolean;
 }
 
-export function PromptInput({ chatId, onSubmit, disabled = false }: PromptInputProps) {
+export function PromptInput({
+  chatId,
+  onSubmit,
+  disabled = false,
+}: PromptInputProps) {
   const { prompt, setPrompt, isLoading, error } = usePlaygroundStore();
   const { isSignedIn, isLoaded } = useUser();
   const signInButtonRef = useRef<HTMLButtonElement>(null);
@@ -69,30 +74,47 @@ export function PromptInput({ chatId, onSubmit, disabled = false }: PromptInputP
     }
 
     // Otherwise, create a new chat WITH the prompt and redirect
-    setIsCreatingChat(true);
     const currentPrompt = prompt.trim();
     
-    try {
-      const result = await createChat(currentPrompt);
+    // Generate chatId on frontend for instant redirect
+    const frontendChatId = generateId();
 
-      if (result.error || !result.chatId) {
-        console.error("Failed to create chat:", result.error);
-        setLocalError(result.error || "Failed to create chat");
-        return;
-      }
+    // Clear prompt immediately for better UX
+    setPrompt("");
 
-      // Clear prompt after successful creation
-      setPrompt("");
-      
-      // Redirect to chat page with the new chat ID
-      // The chat page will detect the pending prompt and auto-stream
-      router.push(`/chat/${result.chatId}`);
-    } catch (error) {
-      console.error("Error creating chat:", error);
-      setLocalError(error instanceof Error ? error.message : "Failed to create chat");
-    } finally {
-      setIsCreatingChat(false);
-    }
+    // Redirect IMMEDIATELY with frontend-generated chatId
+    // Prompt content will be stored in sessionStorage for the chat page to retrieve
+    // This allows streaming to start before backend creates the chat
+    sessionStorage.setItem(`chat_${frontendChatId}_prompt`, currentPrompt);
+    router.push(`/chat/${frontendChatId}`);
+
+    // Create chat in background (don't block UI)
+    setIsCreatingChat(true);
+    createChat(currentPrompt, frontendChatId)
+      .then((result) => {
+        if (result.error) {
+          console.error("Failed to create chat:", result.error);
+          setLocalError(result.error || "Failed to create chat");
+          // Clean up sessionStorage on error
+          sessionStorage.removeItem(`chat_${frontendChatId}_prompt`);
+          // Optionally redirect back on error
+          router.push("/chat");
+        } else {
+          // Clean up sessionStorage after successful creation
+          sessionStorage.removeItem(`chat_${frontendChatId}_prompt`);
+        }
+      })
+      .catch((error) => {
+        console.error("Error creating chat:", error);
+        setLocalError(
+          error instanceof Error ? error.message : "Failed to create chat",
+        );
+        sessionStorage.removeItem(`chat_${frontendChatId}_prompt`);
+        router.push("/chat");
+      })
+      .finally(() => {
+        setIsCreatingChat(false);
+      });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

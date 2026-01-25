@@ -19,27 +19,10 @@ export function UserSection() {
           <Skeleton className='h-4 flex-1 rounded' />
         </div>
       ) : isSignedIn && user ? (
-        <div className='flex items-center gap-2 px-2 py-2'>
+        <div className='flex items-center '>
           {!isCollapsed && (
             <>
               <div className='flex items-center gap-2 flex-1 min-w-0'>
-                {user.imageUrl ? (
-                  <Image
-                    width={32}
-                    height={32}
-                    src={user.imageUrl}
-                    alt={user.fullName || "User"}
-                    className='h-8 w-8 rounded-full shrink-0'
-                  />
-                ) : (
-                  <div className='h-8 w-8 rounded-full bg-primary flex items-center justify-center shrink-0'>
-                    <span className='text-xs font-medium text-primary-foreground'>
-                      {user.firstName?.[0] ||
-                        user.emailAddresses[0]?.emailAddress[0] ||
-                        "U"}
-                    </span>
-                  </div>
-                )}
                 <div className='flex-1 min-w-0'>
                   <p className='text-sm font-medium text-(--text-primary) truncate'>
                     {user.fullName ||

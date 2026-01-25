@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect } from "react";
+import { use, useEffect, useState } from "react";
 import {
   SidebarProvider,
   SidebarInset,
@@ -24,6 +24,9 @@ import { useAutoDetectStreaming } from "@/hooks/useAutoDetectStreaming";
 const ChatPage = ({ params }: { params: Promise<{ id: string }> }) => {
   const { id } = use(params);
   const { data: chat, isLoading, error: chatError } = useGetChat(id);
+  
+  // Check if this is a new chat with prompt in sessionStorage (frontend-generated ID scenario)
+  const [hasStartedStreaming, setHasStartedStreaming] = useState(false);
 
   // Hooks for managing state
   const {
@@ -39,7 +42,27 @@ const ChatPage = ({ params }: { params: Promise<{ id: string }> }) => {
 
   const { chatContainerRef, scrollToBottom } = useAutoScroll(isStreaming);
 
-  // Auto-detect prompts without responses
+  // Start streaming immediately if prompt is in sessionStorage (new chat with frontend-generated ID)
+  // This allows streaming to begin before chat data is created/loaded
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    
+    const storedPrompt = sessionStorage.getItem(`chat_${id}_prompt`);
+    if (storedPrompt && !hasStartedStreaming && !isLoading) {
+      // Generate promptId on the chat page
+      const promptId = crypto.randomUUID();
+      
+      // Start streaming immediately with the prompt content
+      handlePromptSubmit(promptId, storedPrompt);
+      setHasStartedStreaming(true);
+      
+      // Clean up sessionStorage after starting
+      sessionStorage.removeItem(`chat_${id}_prompt`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, hasStartedStreaming, isLoading]);
+
+  // Auto-detect prompts without responses (fallback for normal flow)
   useAutoDetectStreaming({
     chat,
     isLoading,
@@ -72,14 +95,12 @@ const ChatPage = ({ params }: { params: Promise<{ id: string }> }) => {
               ref={chatContainerRef}
               className='flex-1 overflow-y-auto p-4 pb-36'>
               <div className='max-w-6xl mx-auto space-y-6'>
-                {isLoading ? (
+                {isLoading && !optimisticPrompt ? (
                   <LoadingState />
-                ) : chatError ? (
+                ) : chatError && !optimisticPrompt ? (
                   <ErrorState error={chatError} />
-                ) : !chat ? (
+                ) : !chat && !optimisticPrompt ? (
                   <ChatNotFoundState />
-                ) : chat.prompts.length === 0 && !optimisticPrompt ? (
-                  <EmptyState />
                 ) : (
                   <>
                     {/* Render existing prompts and their responses */}
@@ -96,6 +117,7 @@ const ChatPage = ({ params }: { params: Promise<{ id: string }> }) => {
                     ))}
 
                     {/* Render optimistic prompt if it doesn't match any existing prompt */}
+                    {/* This handles both new chats and existing chats with new prompts */}
                     {optimisticPrompt &&
                       !chat?.prompts.find(
                         (p) => p.id === optimisticPrompt.id,
@@ -115,13 +137,18 @@ const ChatPage = ({ params }: { params: Promise<{ id: string }> }) => {
                           )}
                         </div>
                       )}
+
+                    {/* Show empty state only if no prompts and no optimistic prompt */}
+                    {(!chat || chat.prompts.length === 0) &&
+                      !optimisticPrompt && <EmptyState />}
                   </>
                 )}
               </div>
             </div>
 
             {/* Input area - fixed at bottom */}
-            {chat && (
+            {/* Show input even if chat doesn't exist yet (for new chats being created) */}
+            {(chat || optimisticPrompt) && (
               <div className='absolute bottom-0 left-0 w-full bg-linear-to-t from-background via-background/80 to-transparent pb-1 pt-10 px-4'>
                 <PromptInput
                   chatId={id}
