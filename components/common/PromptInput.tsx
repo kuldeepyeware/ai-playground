@@ -75,7 +75,6 @@ export function PromptInput({
 
     // Otherwise, create a new chat WITH the prompt and redirect
     const currentPrompt = prompt.trim();
-    
     // Generate chatId on frontend for instant redirect
     const frontendChatId = generateId();
 

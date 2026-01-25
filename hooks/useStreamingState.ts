@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { OptimisticPrompt, Chat, Prompt } from "@/types/chat";
+import type { OptimisticPrompt, Prompt } from "@/types/chat";
 
 export function useStreamingState(chatId: string) {
   const queryClient = useQueryClient();
@@ -44,21 +44,24 @@ export function useStreamingState(chatId: string) {
 
     completedStreamsRef.current.get(promptId)!.add(provider);
 
-    // Check if all 3 providers completed for this prompt
-    // Inside handleStreamComplete in useStreamingState.ts
     if (completedStreamsRef.current.get(promptId)!.size === 3) {
-      // 1. Trigger the refetch
       queryClient
-        .refetchQueries({ queryKey: ["get-chat", chatId] })
-        .then(() => {
-          // 2. ONLY clear streaming state once we are sure the DB data is in the cache
-          const updatedChat = queryClient.getQueryData<Chat | null>([
-            "get-chat",
-            chatId,
-          ]);
+        .fetchQuery({
+          queryKey: ["get-chat", chatId],
+          queryFn: async () => {
+            const { getChatById } = await import("@/actions/chat");
+            const result = await getChatById(chatId);
+            if (result.error) {
+              return null;
+            }
+            return result.chat;
+          },
+        })
+        .then((updatedChat) => {
           const foundPrompt =
             updatedChat?.prompts?.find((p: Prompt) => p.id === promptId) ??
             null;
+
           const hasResponses = (foundPrompt?.responses?.length ?? 0) > 0;
 
           if (hasResponses) {
@@ -69,6 +72,9 @@ export function useStreamingState(chatId: string) {
             });
             setOptimisticPrompt(null);
           }
+        })
+        .catch((error) => {
+          console.error("Error fetching chat after stream complete:", error);
         });
     }
   };
