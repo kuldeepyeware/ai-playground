@@ -66,4 +66,6 @@ model Response {
   prompt   Prompt @relation(fields: [promptId], references: [id], onDelete: Cascade)
 
   @@index([promptId])
+  @@index([provider])
+  @@index([promptId, provider])
 }

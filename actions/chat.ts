@@ -76,6 +76,12 @@ export async function getUserChats() {
       where: { userId },
       orderBy: { updatedAt: "desc" },
       take: 50, // Limit to 50 most recent chats
+      select: {
+        id: true,
+        title: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     return { error: null, chats };
@@ -139,43 +145,50 @@ export async function submitPrompt(chatId: string, prompt: string) {
       return { error: "Prompt cannot be empty", promptId: null };
     }
 
-    // Verify chat belongs to user
-    const chat = await prisma.chat.findFirst({
-      where: {
-        id: chatId,
-        userId,
-      },
-    });
-
-    if (!chat) {
-      return { error: "Chat not found", promptId: null };
-    }
-
-    // Create prompt
-    const createdPrompt = await prisma.prompt.create({
-      data: {
-        chatId,
-        content: prompt,
-      },
-    });
-
-    // Update chat's updatedAt timestamp
-    await prisma.chat.update({
-      where: { id: chatId },
-      data: { updatedAt: new Date() },
-    });
-
-    // Set title if it's the first prompt
-    if (!chat.title) {
-      const title = prompt.slice(0, 50) + (prompt.length > 50 ? "..." : "");
-      await prisma.chat.update({
-        where: { id: chatId },
-        data: { title },
+    // Verify chat belongs to user and create prompt in a single transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Verify chat and get title status
+      const chat = await tx.chat.findFirst({
+        where: {
+          id: chatId,
+          userId,
+        },
+        select: { id: true, title: true }, // Only select needed fields
       });
-    }
+
+      if (!chat) {
+        throw new Error("Chat not found");
+      }
+
+      // Create prompt
+      const createdPrompt = await tx.prompt.create({
+        data: {
+          chatId,
+          content: prompt,
+        },
+      });
+
+      // Update chat - combine title and updatedAt updates
+      const updateData: { updatedAt: Date; title?: string } = {
+        updatedAt: new Date(),
+      };
+
+      // Set title if it's the first prompt
+      if (!chat.title) {
+        updateData.title =
+          prompt.slice(0, 50) + (prompt.length > 50 ? "..." : "");
+      }
+
+      await tx.chat.update({
+        where: { id: chatId },
+        data: updateData,
+      });
+
+      return { promptId: createdPrompt.id };
+    });
 
     revalidatePath(`/chat/${chatId}`);
-    return { error: null, promptId: createdPrompt.id };
+    return { error: null, promptId: result.promptId };
   } catch (error) {
     console.error("Error submitting prompt:", error);
     return {
