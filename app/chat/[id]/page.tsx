@@ -24,8 +24,6 @@ import { useAutoDetectStreaming } from "@/hooks/useAutoDetectStreaming";
 const ChatPage = ({ params }: { params: Promise<{ id: string }> }) => {
   const { id } = use(params);
   const { data: chat, isLoading, error: chatError } = useGetChat(id);
-  
-  // Check if this is a new chat with prompt in sessionStorage (frontend-generated ID scenario)
   const [hasStartedStreaming, setHasStartedStreaming] = useState(false);
 
   // Hooks for managing state
@@ -46,23 +44,23 @@ const ChatPage = ({ params }: { params: Promise<{ id: string }> }) => {
   // This allows streaming to begin before chat data is created/loaded
   useEffect(() => {
     if (typeof window === "undefined") return;
-    
+
     const storedPrompt = sessionStorage.getItem(`chat_${id}_prompt`);
     if (storedPrompt && !hasStartedStreaming && !isLoading) {
       // Generate promptId on the chat page
       const promptId = crypto.randomUUID();
-      
+
       // Start streaming immediately with the prompt content
       handlePromptSubmit(promptId, storedPrompt);
       setHasStartedStreaming(true);
-      
+
       // Clean up sessionStorage after starting
       sessionStorage.removeItem(`chat_${id}_prompt`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, hasStartedStreaming, isLoading]);
 
-  // Auto-detect prompts without responses (fallback for normal flow)
+  // Auto-detect prompts without responses
   useAutoDetectStreaming({
     chat,
     isLoading,
