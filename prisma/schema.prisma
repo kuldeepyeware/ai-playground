@@ -1,0 +1,69 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id // Clerk user ID
+  email     String   @unique
+  name      String?
+  imageUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  chats Chat[]
+}
+
+model Chat {
+  id        String   @id @default(cuid())
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  userId  String
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompts Prompt[]
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Prompt {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  chatId String
+  chat   Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  responses    Response[]
+
+  @@index([chatId])
+  @@index([createdAt])
+}
+
+
+model Response {
+  id               String @id @default(cuid())
+  model            String // e.g., "GPT-4o", "Claude 3.5 Sonnet", "Grok"
+  provider         String // e.g., "openai", "anthropic", "xai"
+  content          String @db.Text
+  latency          Int // milliseconds
+  promptTokens     Int
+  completionTokens Int
+  totalTokens      Int
+  cost             Float // USD
+  status           String // "success" or "error"
+  error            String? @db.Text
+
+
+  promptId String
+  prompt   Prompt @relation(fields: [promptId], references: [id], onDelete: Cascade)
+
+  @@index([promptId])
+}

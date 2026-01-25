@@ -1,0 +1,140 @@
+"use client";
+
+import { use, useEffect } from "react";
+import {
+  SidebarProvider,
+  SidebarInset,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
+import { ChatSidebar } from "@/components/chat/ChatSidebar";
+import { PromptInput } from "@/components/common/PromptInput";
+import { useGetChat } from "@/hooks/useGetChat";
+import { ChatMessage } from "@/components/chat/ChatMessage";
+import { ResponseGrid } from "@/components/chat/ResponseGrid";
+import {
+  LoadingState,
+  ErrorState,
+  ChatNotFoundState,
+  EmptyState,
+} from "@/components/chat/ChatStates";
+import { useAutoScroll } from "@/hooks/useAutoScroll";
+import { useStreamingState } from "@/hooks/useStreamingState";
+import { useAutoDetectStreaming } from "@/hooks/useAutoDetectStreaming";
+
+const ChatPage = ({ params }: { params: Promise<{ id: string }> }) => {
+  const { id } = use(params);
+  const { data: chat, isLoading, error: chatError } = useGetChat(id);
+
+  // Hooks for managing state
+  const {
+    streamingPromptIds,
+    optimisticPrompt,
+    isStreaming,
+    streamingStartedRef,
+    handlePromptSubmit,
+    handleStreamComplete,
+    startStreamingForPrompts,
+    clearOptimisticPromptIfMatches,
+  } = useStreamingState(id);
+
+  const { chatContainerRef, scrollToBottom } = useAutoScroll(isStreaming);
+
+  // Auto-detect prompts without responses
+  useAutoDetectStreaming({
+    chat,
+    isLoading,
+    streamingStartedRef,
+    startStreamingForPrompts,
+    clearOptimisticPromptIfMatches,
+    optimisticPrompt,
+    scrollToBottom,
+  });
+
+  // Scroll to bottom when streaming prompts change
+  useEffect(() => {
+    scrollToBottom();
+  }, [streamingPromptIds, scrollToBottom]);
+
+  return (
+    <div className='min-h-screen bg-background'>
+      <SidebarProvider>
+        <ChatSidebar />
+
+        <SidebarInset>
+          {/* Mobile trigger button - sticky on left */}
+          <div className='fixed top-4 left-4 z-50 md:hidden'>
+            <SidebarTrigger className='h-10 w-10 rounded-lg bg-(--background-secondary) border border-(--border-secondary) shadow-lg hover:bg-(--background-secondary)/80' />
+          </div>
+
+          <main className='relative flex flex-col h-screen w-full overflow-hidden'>
+            {/* Chat content area */}
+            <div
+              ref={chatContainerRef}
+              className='flex-1 overflow-y-auto p-4 pb-36'>
+              <div className='max-w-6xl mx-auto space-y-6'>
+                {isLoading ? (
+                  <LoadingState />
+                ) : chatError ? (
+                  <ErrorState error={chatError} />
+                ) : !chat ? (
+                  <ChatNotFoundState />
+                ) : chat.prompts.length === 0 && !optimisticPrompt ? (
+                  <EmptyState />
+                ) : (
+                  <>
+                    {/* Render existing prompts and their responses */}
+                    {chat?.prompts.map((prompt) => (
+                      <div key={prompt.id} className='space-y-4'>
+                        <ChatMessage content={prompt.content} isUser={true} />
+                        <ResponseGrid
+                          prompt={prompt}
+                          chatId={id}
+                          isStreaming={streamingPromptIds.has(prompt.id)}
+                          onStreamComplete={handleStreamComplete}
+                        />
+                      </div>
+                    ))}
+
+                    {/* Render optimistic prompt if it doesn't match any existing prompt */}
+                    {optimisticPrompt &&
+                      !chat?.prompts.find(
+                        (p) => p.id === optimisticPrompt.id,
+                      ) && (
+                        <div className='space-y-4'>
+                          <ChatMessage
+                            content={optimisticPrompt.content}
+                            isUser={true}
+                          />
+                          {streamingPromptIds.has(optimisticPrompt.id) && (
+                            <ResponseGrid
+                              prompt={optimisticPrompt}
+                              chatId={id}
+                              isStreaming={true}
+                              onStreamComplete={handleStreamComplete}
+                            />
+                          )}
+                        </div>
+                      )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Input area - fixed at bottom */}
+            {chat && (
+              <div className='absolute bottom-0 left-0 w-full bg-linear-to-t from-background via-background/80 to-transparent pb-1 pt-10 px-4'>
+                <PromptInput
+                  chatId={id}
+                  onSubmit={handlePromptSubmit}
+                  disabled={isStreaming}
+                />
+              </div>
+            )}
+          </main>
+        </SidebarInset>
+      </SidebarProvider>
+    </div>
+  );
+};
+
+export default ChatPage;
