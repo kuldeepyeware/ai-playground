@@ -10,6 +10,7 @@ interface StreamingResponseProps {
   promptId: string;
   chatId: string;
   onComplete?: (content: string) => void;
+  inline?: boolean; // If true, render without container (for use inside ResponseGrid)
 }
 
 const PROVIDER_CONFIG = {
@@ -75,6 +76,7 @@ export function StreamingResponse({
   promptId,
   chatId,
   onComplete,
+  inline = false,
 }: StreamingResponseProps) {
   const [content, setContent] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -212,6 +214,56 @@ export function StreamingResponse({
     streamResponse();
   };
 
+  // Inline mode: render just the content without container
+  if (inline) {
+    return (
+      <>
+        {error ? (
+          <div className='text-(--error) text-sm bg-(--error)/10 rounded-lg p-3 border border-(--error)/20'>
+            <div className='flex items-start gap-2'>
+              <AlertCircle className='h-4 w-4 mt-0.5 shrink-0' />
+              <div>
+                <div className='font-medium'>{error.title}</div>
+                <div className='text-xs mt-1 opacity-80'>
+                  {error.description}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={handleRetry}
+              className='mt-2 flex items-center gap-1 text-xs text-(--text-muted) hover:text-(--text-primary) transition-colors'>
+              <RefreshCw className='h-3 w-3' />
+              <span>Retry</span>
+            </button>
+          </div>
+        ) : (
+          <div className='text-(--text-primary) whitespace-pre-wrap wrap-break-word'>
+            {content ||
+              (isLoading ? (
+                <div className='flex items-center gap-2 text-(--text-muted)'>
+                  <span
+                    className='inline-block w-2 h-2 bg-current rounded-full animate-bounce'
+                    style={{ animationDelay: "0ms" }}
+                  />
+                  <span
+                    className='inline-block w-2 h-2 bg-current rounded-full animate-bounce'
+                    style={{ animationDelay: "150ms" }}
+                  />
+                  <span
+                    className='inline-block w-2 h-2 bg-current rounded-full animate-bounce'
+                    style={{ animationDelay: "300ms" }}
+                  />
+                </div>
+              ) : (
+                "No response"
+              ))}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // Full container mode: render with header and container
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}

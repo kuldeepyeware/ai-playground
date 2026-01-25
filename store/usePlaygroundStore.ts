@@ -122,7 +122,6 @@ export const usePlaygroundStore = create<PlaygroundState>()(
 
         const providers = ["openai", "anthropic", "xai"] as const;
         const startTimes: Record<string, number> = {};
-        const modelResults: ModelResponse[] = [];
 
         // Start all streams in parallel
         const streamPromises = providers.map(async (provider) => {

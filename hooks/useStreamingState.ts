@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { OptimisticPrompt } from "@/types/chat";
+import type { OptimisticPrompt, Chat, Prompt } from "@/types/chat";
 
 export function useStreamingState(chatId: string) {
   const queryClient = useQueryClient();
@@ -45,60 +45,31 @@ export function useStreamingState(chatId: string) {
     completedStreamsRef.current.get(promptId)!.add(provider);
 
     // Check if all 3 providers completed for this prompt
+    // Inside handleStreamComplete in useStreamingState.ts
     if (completedStreamsRef.current.get(promptId)!.size === 3) {
-      // Invalidate and refetch queries to get saved responses
-      queryClient.invalidateQueries({ queryKey: ["get-chat", chatId] });
-      queryClient.invalidateQueries({ queryKey: ["get-chats"] });
+      // 1. Trigger the refetch
+      queryClient
+        .refetchQueries({ queryKey: ["get-chat", chatId] })
+        .then(() => {
+          // 2. ONLY clear streaming state once we are sure the DB data is in the cache
+          const updatedChat = queryClient.getQueryData<Chat | null>([
+            "get-chat",
+            chatId,
+          ]);
+          const foundPrompt =
+            updatedChat?.prompts?.find((p: Prompt) => p.id === promptId) ??
+            null;
+          const hasResponses = (foundPrompt?.responses?.length ?? 0) > 0;
 
-      // Refetch and wait for completion to ensure data is loaded
-      queryClient.refetchQueries({ queryKey: ["get-chat", chatId] }).then(() => {
-        // Check if the prompt has responses in the updated chat data
-        const updatedChat = queryClient.getQueryData([
-          "get-chat",
-          chatId,
-        ]) as { prompts?: Array<{ id: string; responses?: unknown[] }> } | null;
-        const promptHasResponses = updatedChat?.prompts?.find(
-          (p) => p.id === promptId,
-        )?.responses?.length;
-
-        // Only remove from streaming state if responses are loaded
-        // This prevents showing "No response available" during refetch
-        if (promptHasResponses && promptHasResponses > 0) {
-          // Remove from streaming state after data is confirmed loaded
-          setStreamingPromptIds((prev) => {
-            const newSet = new Set(prev);
-            newSet.delete(promptId);
-            return newSet;
-          });
-
-          // Clear optimistic prompt
-          setOptimisticPrompt(null);
-
-          // Cleanup completion tracking
-          completedStreamsRef.current.delete(promptId);
-        } else {
-          // If responses aren't loaded yet, check again after a short delay
-          setTimeout(() => {
-            const retryChat = queryClient.getQueryData([
-              "get-chat",
-              chatId,
-            ]) as { prompts?: Array<{ id: string; responses?: unknown[] }> } | null;
-            const retryHasResponses = retryChat?.prompts?.find(
-              (p) => p.id === promptId,
-            )?.responses?.length;
-
-            if (retryHasResponses && retryHasResponses > 0) {
-              setStreamingPromptIds((prev) => {
-                const newSet = new Set(prev);
-                newSet.delete(promptId);
-                return newSet;
-              });
-              setOptimisticPrompt(null);
-              completedStreamsRef.current.delete(promptId);
-            }
-          }, 300);
-        }
-      });
+          if (hasResponses) {
+            setStreamingPromptIds((prev) => {
+              const newSet = new Set(prev);
+              newSet.delete(promptId);
+              return newSet;
+            });
+            setOptimisticPrompt(null);
+          }
+        });
     }
   };
 

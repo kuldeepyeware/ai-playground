@@ -4,7 +4,6 @@ import { useUser, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { SidebarFooter, useSidebar } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import Image from "next/image";
 
 export function UserSection() {
   const { state } = useSidebar();
