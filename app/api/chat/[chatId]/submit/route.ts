@@ -8,7 +8,7 @@ import {
 } from "@/lib/adapters/gateway";
 import { prisma } from "@/lib/db";
 import { calculateCost } from "@/lib/pricing";
-import { isAbortError, MODEL_NAMES, responseExists } from "@/helpers/submit";
+import { isAbortError, MODEL_NAMES } from "@/helpers/submit";
 
 export const dynamic = "force-dynamic";
 
@@ -40,25 +40,27 @@ export async function POST(
     );
   }
 
-  // Verify chat belongs to user
-  const chat = await prisma.chat.findFirst({
-    where: {
-      id: chatId,
-      userId,
-    },
-  });
+  // Verify chat and prompt in parallel
+  const [chat, promptRecord] = await Promise.all([
+    prisma.chat.findFirst({
+      where: {
+        id: chatId,
+        userId,
+      },
+      select: { id: true }, // Only select id to reduce data transfer
+    }),
+    prisma.prompt.findFirst({
+      where: {
+        id: promptId,
+        chatId,
+      },
+      select: { id: true }, // Only select id to reduce data transfer
+    }),
+  ]);
 
   if (!chat) {
     return NextResponse.json({ error: "Chat not found" }, { status: 404 });
   }
-
-  // Verify prompt belongs to chat
-  const promptRecord = await prisma.prompt.findFirst({
-    where: {
-      id: promptId,
-      chatId,
-    },
-  });
 
   if (!promptRecord) {
     return NextResponse.json({ error: "Prompt not found" }, { status: 404 });
@@ -76,20 +78,20 @@ export async function POST(
 
   // Check if we already have a response for this prompt/provider combo
   // This prevents duplicate responses on retry/page refresh
-  const alreadyExists = await responseExists(promptId, provider);
-  if (alreadyExists) {
-    const existingResponse = await prisma.response.findFirst({
-      where: { promptId, provider },
-    });
+  const existingResponse = await prisma.response.findFirst({
+    where: { promptId, provider },
+    select: { id: true, status: true, content: true }, // Only select needed fields
+  });
 
-    if (existingResponse?.status === "success" && existingResponse.content) {
+  if (existingResponse) {
+    if (existingResponse.status === "success" && existingResponse.content) {
       return new Response(existingResponse.content, {
         headers: { "Content-Type": "text/plain" },
       });
     }
 
     // If it was an error, let it retry
-    if (existingResponse?.status === "error") {
+    if (existingResponse.status === "error") {
       await prisma.response.delete({ where: { id: existingResponse.id } });
     }
   }

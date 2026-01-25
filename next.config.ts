@@ -15,6 +15,11 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // Optimize for production
+  compress: true, // Enable gzip compression
+  poweredByHeader: false, // Remove X-Powered-By header for security
+  // Optimize React
+  reactStrictMode: true,
 };
 
 export default nextConfig;
