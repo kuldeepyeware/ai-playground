@@ -7,6 +7,12 @@ import { formatCost } from "@/lib/pricing";
 import { PROVIDERS } from "@/constants/providers";
 import type { Prompt } from "@/types/chat";
 
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  xai: "xAI",
+};
+
 interface ResponseGridProps {
   prompt: Prompt;
   chatId: string;
@@ -49,9 +55,14 @@ export function ResponseGrid({
                   className='w-2 h-2 rounded-full'
                   style={{ backgroundColor: provider.color }}
                 />
-                <h3 className='font-semibold text-(--text-primary)'>
-                  {provider.name}
-                </h3>
+                <div className='flex flex-col'>
+                  <span className='text-xs text-(--text-muted) font-medium'>
+                    {PROVIDER_DISPLAY_NAMES[provider.id] || provider.id}
+                  </span>
+                  <h3 className='font-semibold text-(--text-primary) leading-tight'>
+                    {provider.name}
+                  </h3>
+                </div>
               </div>
             </div>
 
