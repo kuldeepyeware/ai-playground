@@ -25,16 +25,23 @@ interface ResponseGridProps {
   prompt: Prompt;
   chatId: string;
   isStreaming: boolean;
-  onStreamComplete: (promptId: string, provider: string, metadata?: ResponseMetadata) => void;
+  onStreamComplete: (
+    promptId: string,
+    provider: string,
+    metadata?: ResponseMetadata,
+  ) => void;
 }
 
 export function ResponseGrid({
   prompt,
   chatId,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   isStreaming,
   onStreamComplete,
 }: ResponseGridProps) {
-  const [metadataByProvider, setMetadataByProvider] = useState<Map<string, ResponseMetadata>>(new Map());
+  const [metadataByProvider, setMetadataByProvider] = useState<
+    Map<string, ResponseMetadata>
+  >(new Map());
   const responsesByProvider = new Map(
     (prompt.responses || []).map((r) => [r.provider, r]),
   );
@@ -44,9 +51,6 @@ export function ResponseGrid({
       {PROVIDERS.map((provider) => {
         const response = responsesByProvider.get(provider.id);
         const hasResponse = !!response;
-
-        // This specific provider is currently streaming
-        const isCurrentlyStreaming = isStreaming && !hasResponse;
 
         return (
           <div
@@ -85,7 +89,7 @@ export function ResponseGrid({
                     chatId={chatId}
                     onComplete={(content, metadata) => {
                       if (metadata) {
-                        setMetadataByProvider(prev => {
+                        setMetadataByProvider((prev) => {
                           const newMap = new Map(prev);
                           newMap.set(provider.id, metadata);
                           return newMap;
@@ -105,21 +109,25 @@ export function ResponseGrid({
               </div>
 
               <AnimatePresence>
-                {(hasResponse && response.status === "success") || metadataByProvider.has(provider.id) ? (
+                {(hasResponse && response.status === "success") ||
+                metadataByProvider.has(provider.id) ? (
                   <motion.div
                     initial={{ opacity: 0, y: 5 }}
                     animate={{ opacity: 1, y: 0 }}
                     className='mt-auto pt-3 border-t border-(--border-secondary) shrink-0 space-y-2'>
                     {(() => {
-                      const meta = hasResponse && response.status === "success" 
-                        ? {
-                            promptTokens: response.promptTokens || 0,
-                            completionTokens: response.completionTokens || 0,
-                            totalTokens: (response.promptTokens || 0) + (response.completionTokens || 0),
-                            cost: response.cost || 0,
-                          }
-                        : metadataByProvider.get(provider.id)!;
-                      
+                      const meta =
+                        hasResponse && response.status === "success"
+                          ? {
+                              promptTokens: response.promptTokens || 0,
+                              completionTokens: response.completionTokens || 0,
+                              totalTokens:
+                                (response.promptTokens || 0) +
+                                (response.completionTokens || 0),
+                              cost: response.cost || 0,
+                            }
+                          : metadataByProvider.get(provider.id)!;
+
                       return (
                         <>
                           <div className='flex items-center gap-1.5 text-[10px] w-full min-w-0'>

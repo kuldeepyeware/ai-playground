@@ -41,11 +41,6 @@ export async function POST(
   }
 
   await prisma.$transaction(async (tx) => {
-    const existingChat = await tx.chat.findFirst({
-      where: { id: chatId },
-      select: { id: true, title: true },
-    });
-
     await tx.chat.upsert({
       where: { id: chatId },
       create: {
@@ -101,9 +96,26 @@ export async function POST(
 
   const config = getModelConfig(provider);
   const startTime = Date.now();
-  let metadata: { promptTokens: number; completionTokens: number; totalTokens: number; cost: number } | null = null;
-  let metadataResolve: ((value: { promptTokens: number; completionTokens: number; totalTokens: number; cost: number }) => void) | null = null;
-  const metadataPromise = new Promise<{ promptTokens: number; completionTokens: number; totalTokens: number; cost: number }>((resolve) => {
+  let metadata: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    cost: number;
+  } | null = null;
+  let metadataResolve:
+    | ((value: {
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
+        cost: number;
+      }) => void)
+    | null = null;
+  const metadataPromise = new Promise<{
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    cost: number;
+  }>((resolve) => {
     metadataResolve = resolve;
   });
 
@@ -160,14 +172,14 @@ export async function POST(
 
     const stream = result.toTextStreamResponse();
     const originalBody = stream.body;
-    
+
     if (!originalBody) {
       return stream;
     }
 
     const reader = originalBody.getReader();
     const encoder = new TextEncoder();
-    
+
     const newStream = new ReadableStream({
       async start(controller) {
         try {
@@ -177,15 +189,21 @@ export async function POST(
               try {
                 const finalMetadata = await Promise.race([
                   metadataPromise,
-                  new Promise<typeof metadata>((resolve) => setTimeout(() => resolve(metadata), 2000)),
+                  new Promise<typeof metadata>((resolve) =>
+                    setTimeout(() => resolve(metadata), 2000),
+                  ),
                 ]);
-                
+
                 if (finalMetadata) {
                   const metadataJson = JSON.stringify(finalMetadata);
-                  controller.enqueue(encoder.encode(`\n\n__METADATA__${metadataJson}__METADATA__`));
+                  controller.enqueue(
+                    encoder.encode(
+                      `\n\n__METADATA__${metadataJson}__METADATA__`,
+                    ),
+                  );
                 }
-              } catch (e) {
-              }
+                // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              } catch (e) {}
               controller.close();
               break;
             }

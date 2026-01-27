@@ -153,20 +153,21 @@ export function StreamingResponse({
           }
 
           const chunk = decoder.decode(value, { stream: true });
-          
+
           const metadataMatch = chunk.match(/__METADATA__({.*?})__METADATA__/);
           if (metadataMatch) {
             try {
               metadata = JSON.parse(metadataMatch[1]);
               const contentBeforeMetadata = chunk.split("__METADATA__")[0];
               fullContent += contentBeforeMetadata;
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
             } catch (e) {
               fullContent += chunk;
             }
           } else {
             fullContent += chunk;
           }
-          
+
           setContent(fullContent);
         }
       } catch (readError) {
