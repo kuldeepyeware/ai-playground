@@ -6,6 +6,9 @@ import { StreamingResponse } from "@/components/chat/StreamingResponse";
 import { formatCost } from "@/lib/pricing";
 import { PROVIDERS } from "@/constants/providers";
 import type { Prompt } from "@/types/chat";
+import { useUser } from "@clerk/nextjs";
+import { useEffect, useState } from "react";
+import { decryptMessage } from "@/lib/crypto";
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   openai: "OpenAI",
@@ -26,6 +29,85 @@ export function ResponseGrid({
   isStreaming,
   onStreamComplete,
 }: ResponseGridProps) {
+  const { user } = useUser();
+  const [decryptedPrompt, setDecryptedPrompt] = useState<string | null>(null);
+  const [decryptedResponses, setDecryptedResponses] = useState<
+    Map<string, string>
+  >(new Map());
+  const [isDecrypting, setIsDecrypting] = useState(true);
+
+  // Decrypt prompt content
+  useEffect(() => {
+    async function decryptPromptContent() {
+      setIsDecrypting(true);
+      if (user?.id) {
+        // Check if content looks like base64 (could be encrypted)
+        // Encrypted data is valid base64 without spaces
+        const hasSpacesOrNewlines = /\s/.test(prompt.content);
+        const looksLikeBase64 =
+          !hasSpacesOrNewlines &&
+          prompt.content.length >= 16 && // Minimum reasonable base64 length
+          /^[A-Za-z0-9+/=]+$/.test(prompt.content);
+
+        if (looksLikeBase64) {
+          // Content appears encrypted, try to decrypt it
+          try {
+            const text = await decryptMessage(prompt.content, user.id);
+            // Check if decryption failed (returns error message)
+            if (text && text.includes("[Decryption Failed")) {
+              // Decryption failed - content might be plaintext that looks encrypted
+              // or there's a key mismatch. Fall back to showing original content.
+              if (process.env.NODE_ENV === "development") {
+                console.debug("Decryption failed, using original content (may be plaintext)");
+              }
+              setDecryptedPrompt(prompt.content);
+            } else {
+              setDecryptedPrompt(text);
+            }
+          } catch (error) {
+            // If decryption throws, show original content
+            // This is expected if content is actually plaintext
+            if (process.env.NODE_ENV === "development") {
+              console.debug("Decryption exception, using original content:", error);
+            }
+            setDecryptedPrompt(prompt.content);
+          }
+        } else {
+          // Content doesn't look encrypted (has spaces/newlines or is short), display as-is
+          // This handles optimistic updates and plaintext content
+          setDecryptedPrompt(prompt.content);
+        }
+      } else {
+        // No user ID, assume plaintext
+        setDecryptedPrompt(prompt.content);
+      }
+      setIsDecrypting(false);
+    }
+    decryptPromptContent();
+  }, [prompt.content, user?.id]);
+
+  // Decrypt all responses
+  useEffect(() => {
+    async function decryptAllResponses() {
+      if (!user?.id || !prompt.responses) return;
+
+      const decrypted = new Map<string, string>();
+      for (const response of prompt.responses) {
+        if (response.status === "success" && response.content) {
+          try {
+            const text = await decryptMessage(response.content, user.id);
+            decrypted.set(response.provider, text);
+          } catch (error) {
+            console.error(`Error decrypting response for ${response.provider}:`, error);
+            decrypted.set(response.provider, response.content); // Fallback
+          }
+        }
+      }
+      setDecryptedResponses(decrypted);
+    }
+    decryptAllResponses();
+  }, [prompt.responses, user?.id]);
+
   const responsesByProvider = new Map(
     (prompt.responses || []).map((r) => [r.provider, r]),
   );
@@ -69,14 +151,21 @@ export function ResponseGrid({
             <div className='flex flex-col flex-1 p-4 min-h-[200px]'>
               <div className='flex-1 text-(--text-primary) whitespace-pre-wrap wrap-break-word'>
                 {isCurrentlyStreaming ? (
-                  <StreamingResponse
-                    provider={provider.id}
-                    prompt={prompt.content}
-                    promptId={prompt.id}
-                    chatId={chatId}
-                    onComplete={() => onStreamComplete(prompt.id, provider.id)}
-                    inline={true}
-                  />
+                  // Wait for decryption before starting stream to ensure AI gets plaintext
+                  isDecrypting || decryptedPrompt === null ? (
+                    <div className='flex items-center justify-center h-full text-(--text-muted) italic'>
+                      Preparing...
+                    </div>
+                  ) : (
+                    <StreamingResponse
+                      provider={provider.id}
+                      prompt={decryptedPrompt}
+                      promptId={prompt.id}
+                      chatId={chatId}
+                      onComplete={() => onStreamComplete(prompt.id, provider.id)}
+                      inline={true}
+                    />
+                  )
                 ) : !hasResponse ? (
                   <div className='flex items-center justify-center h-full text-(--text-muted) italic'>
                     {isStreaming ? "Preparing..." : "No response available"}
@@ -87,7 +176,9 @@ export function ResponseGrid({
                   </div>
                 ) : (
                   /* We remove the entrance animation here so the text doesn't 'pop' twice */
-                  <span>{response.content}</span>
+                  <span>
+                    {decryptedResponses.get(response.provider) || response.content}
+                  </span>
                 )}
               </div>
 

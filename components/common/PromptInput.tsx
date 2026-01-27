@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { createChat } from "@/actions/chat";
 import { useSubmitPrompt } from "@/hooks/useSubmitPrompt";
 import { generateId } from "@/lib/id-generator";
+import { encryptMessage } from "@/lib/crypto";
 
 interface PromptInputProps {
   chatId?: string;
@@ -22,7 +23,7 @@ export function PromptInput({
   disabled = false,
 }: PromptInputProps) {
   const { prompt, setPrompt, isLoading, error } = usePlaygroundStore();
-  const { isSignedIn, isLoaded } = useUser();
+  const { isSignedIn, isLoaded, user } = useUser();
   const signInButtonRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
   const [isCreatingChat, setIsCreatingChat] = useState(false);
@@ -67,9 +68,17 @@ export function PromptInput({
       return;
     }
 
+    const userSecret = user?.id || "";
+    if (!userSecret) {
+      setLocalError("User ID not available");
+      return;
+    }
+
     // If we're in a chat context, submit the prompt
     if (chatId) {
-      submitPromptMutation.mutate(prompt);
+      // Encrypt the prompt before sending to server
+      const encryptedPrompt = await encryptMessage(prompt.trim(), userSecret);
+      submitPromptMutation.mutate(encryptedPrompt);
       return;
     }
 
@@ -84,12 +93,15 @@ export function PromptInput({
     // Redirect IMMEDIATELY with frontend-generated chatId
     // Prompt content will be stored in sessionStorage for the chat page to retrieve
     // This allows streaming to start before backend creates the chat
+    // Store plaintext in sessionStorage for AI processing
     sessionStorage.setItem(`chat_${frontendChatId}_prompt`, currentPrompt);
     router.push(`/chat/${frontendChatId}`);
 
     // Create chat in background (don't block UI)
+    // Encrypt the prompt before sending to server
     setIsCreatingChat(true);
-    createChat(currentPrompt, frontendChatId)
+    const encryptedPrompt = await encryptMessage(currentPrompt, userSecret);
+    createChat(encryptedPrompt, frontendChatId)
       .then((result) => {
         if (result.error) {
           console.error("Failed to create chat:", result.error);

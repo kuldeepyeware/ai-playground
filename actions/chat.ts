@@ -3,6 +3,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import { decryptMessage } from "@/lib/crypto-server";
 
 interface CreateChatResult {
   error: string | null;
@@ -23,14 +24,29 @@ export async function createChat(
 
     // Create chat and optionally the first prompt in a transaction
     const result = await prisma.$transaction(async (tx) => {
+      // Decrypt the prompt to create a readable title
+      let decryptedPrompt = initialPrompt;
+      if (initialPrompt) {
+        try {
+          // Try to decrypt if it looks encrypted
+          const decrypted = decryptMessage(initialPrompt, userId);
+          if (decrypted && !decrypted.includes("[Decryption Failed")) {
+            decryptedPrompt = decrypted;
+          }
+        } catch (error) {
+          // If decryption fails, use original (might be plaintext)
+          console.error("Failed to decrypt prompt for title:", error);
+        }
+      }
+
       // Create a new chat with provided ID
       const chat = await tx.chat.create({
         data: {
           id: providedChatId, // Use frontend-generated ID if provided
           userId: userId,
-          title: initialPrompt
-            ? initialPrompt.slice(0, 50) +
-              (initialPrompt.length > 50 ? "..." : "")
+          title: decryptedPrompt
+            ? decryptedPrompt.slice(0, 50) +
+              (decryptedPrompt.length > 50 ? "..." : "")
             : null,
         },
       });
@@ -175,8 +191,21 @@ export async function submitPrompt(chatId: string, prompt: string) {
 
       // Set title if it's the first prompt
       if (!chat.title) {
+        // Decrypt the prompt to create a readable title
+        let decryptedPrompt = prompt;
+        try {
+          // Try to decrypt if it looks encrypted
+          const decrypted = decryptMessage(prompt, userId);
+          if (decrypted && !decrypted.includes("[Decryption Failed")) {
+            decryptedPrompt = decrypted;
+          }
+        } catch (error) {
+          // If decryption fails, use original (might be plaintext)
+          console.error("Failed to decrypt prompt for title:", error);
+        }
+        
         updateData.title =
-          prompt.slice(0, 50) + (prompt.length > 50 ? "..." : "");
+          decryptedPrompt.slice(0, 50) + (decryptedPrompt.length > 50 ? "..." : "");
       }
 
       await tx.chat.update({
