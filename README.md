@@ -25,7 +25,6 @@ A Next.js application that allows users to compare responses from multiple AI mo
   - TanStack Query (server state)
 - **UI Components**: Radix UI + shadcn/ui
 - **Animations**: Framer Motion
-- **Markdown Rendering**: react-markdown
 
 ### Directory Structure
 
