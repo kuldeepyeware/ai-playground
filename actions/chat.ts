@@ -4,66 +4,6 @@ import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
 
-interface CreateChatResult {
-  error: string | null;
-  chatId: string | null;
-  promptId: string | null;
-}
-
-export async function createChat(
-  initialPrompt?: string,
-  providedChatId?: string,
-): Promise<CreateChatResult> {
-  try {
-    const { userId } = await auth();
-
-    if (!userId) {
-      return { error: "Unauthorized", chatId: null, promptId: null };
-    }
-
-    // Create chat and optionally the first prompt in a transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Create a new chat with provided ID
-      const chat = await tx.chat.create({
-        data: {
-          id: providedChatId, // Use frontend-generated ID if provided
-          userId: userId,
-          title: initialPrompt
-            ? initialPrompt.slice(0, 50) +
-              (initialPrompt.length > 50 ? "..." : "")
-            : null,
-        },
-      });
-
-      let promptId: string | null = null;
-
-      // If initial prompt provided, create it
-      if (initialPrompt && initialPrompt.trim()) {
-        const prompt = await tx.prompt.create({
-          data: {
-            chatId: chat.id,
-            content: initialPrompt.trim(),
-          },
-        });
-        promptId = prompt.id;
-      }
-
-      return { chatId: chat.id, promptId };
-    });
-
-    revalidatePath("/chat");
-    revalidatePath(`/chat/${result.chatId}`);
-    return { error: null, chatId: result.chatId, promptId: result.promptId };
-  } catch (error) {
-    console.error("Error creating chat:", error);
-    return {
-      error: error instanceof Error ? error.message : "Failed to create chat",
-      chatId: null,
-      promptId: null,
-    };
-  }
-}
-
 export async function getUserChats() {
   try {
     const { userId } = await auth();
@@ -133,7 +73,7 @@ export async function getChatById(chatId: string) {
   }
 }
 
-export async function submitPrompt(chatId: string, prompt: string) {
+export async function submitPrompt(chatId: string, prompt: string, providedPromptId?: string) {
   try {
     const { userId } = await auth();
 
@@ -145,35 +85,35 @@ export async function submitPrompt(chatId: string, prompt: string) {
       return { error: "Prompt cannot be empty", promptId: null };
     }
 
-    // Verify chat belongs to user and create prompt in a single transaction
     const result = await prisma.$transaction(async (tx) => {
-      // Verify chat and get title status
       const chat = await tx.chat.findFirst({
         where: {
           id: chatId,
           userId,
         },
-        select: { id: true, title: true }, // Only select needed fields
+        select: { id: true, title: true },
       });
 
       if (!chat) {
         throw new Error("Chat not found");
       }
 
-      // Create prompt
-      const createdPrompt = await tx.prompt.create({
-        data: {
+      const promptId = providedPromptId || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`);
+
+      const createdPrompt = await tx.prompt.upsert({
+        where: { id: promptId },
+        create: {
+          id: promptId,
           chatId,
           content: prompt,
         },
+        update: {},
       });
 
-      // Update chat - combine title and updatedAt updates
       const updateData: { updatedAt: Date; title?: string } = {
         updatedAt: new Date(),
       };
 
-      // Set title if it's the first prompt
       if (!chat.title) {
         updateData.title =
           prompt.slice(0, 50) + (prompt.length > 50 ? "..." : "");
@@ -187,7 +127,6 @@ export async function submitPrompt(chatId: string, prompt: string) {
       return { promptId: createdPrompt.id };
     });
 
-    revalidatePath(`/chat/${chatId}`);
     return { error: null, promptId: result.promptId };
   } catch (error) {
     console.error("Error submitting prompt:", error);

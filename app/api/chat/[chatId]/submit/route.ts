@@ -40,31 +40,34 @@ export async function POST(
     );
   }
 
-  // Verify chat and prompt in parallel
-  const [chat, promptRecord] = await Promise.all([
-    prisma.chat.findFirst({
-      where: {
+  await prisma.$transaction(async (tx) => {
+    const existingChat = await tx.chat.findFirst({
+      where: { id: chatId },
+      select: { id: true, title: true },
+    });
+
+    await tx.chat.upsert({
+      where: { id: chatId },
+      create: {
         id: chatId,
-        userId,
+        userId: userId,
+        title: prompt.slice(0, 50) + (prompt.length > 50 ? "..." : ""),
       },
-      select: { id: true }, // Only select id to reduce data transfer
-    }),
-    prisma.prompt.findFirst({
-      where: {
+      update: {
+        updatedAt: new Date(),
+      },
+    });
+
+    await tx.prompt.upsert({
+      where: { id: promptId },
+      create: {
         id: promptId,
-        chatId,
+        chatId: chatId,
+        content: prompt,
       },
-      select: { id: true }, // Only select id to reduce data transfer
-    }),
-  ]);
-
-  if (!chat) {
-    return NextResponse.json({ error: "Chat not found" }, { status: 404 });
-  }
-
-  if (!promptRecord) {
-    return NextResponse.json({ error: "Prompt not found" }, { status: 404 });
-  }
+      update: {},
+    });
+  });
 
   // Get provider from query params
   const { searchParams } = new URL(request.url);
@@ -98,25 +101,39 @@ export async function POST(
 
   const config = getModelConfig(provider);
   const startTime = Date.now();
+  let metadata: { promptTokens: number; completionTokens: number; totalTokens: number; cost: number } | null = null;
+  let metadataResolve: ((value: { promptTokens: number; completionTokens: number; totalTokens: number; cost: number }) => void) | null = null;
+  const metadataPromise = new Promise<{ promptTokens: number; completionTokens: number; totalTokens: number; cost: number }>((resolve) => {
+    metadataResolve = resolve;
+  });
 
   try {
     const result = streamText({
       model: config.model,
       prompt,
-      abortSignal: request.signal, // Pass the request's abort signal to gracefully handle client disconnects
+      abortSignal: request.signal,
       onFinish: async ({ text, usage }) => {
         if (request.signal.aborted) {
           return;
         }
 
-        // Save response to database
         const latency = Date.now() - startTime;
         const promptTokens = usage?.inputTokens ?? 0;
         const completionTokens = usage?.outputTokens ?? 0;
 
-        // Calculate cost using the pricing key
         const pricingKey = GATEWAY_MODELS[provider].pricingKey;
         const cost = calculateCost(pricingKey, promptTokens, completionTokens);
+
+        metadata = {
+          promptTokens,
+          completionTokens,
+          totalTokens: promptTokens + completionTokens,
+          cost,
+        };
+
+        if (metadataResolve) {
+          metadataResolve(metadata);
+        }
 
         try {
           await prisma.response.create({
@@ -134,7 +151,6 @@ export async function POST(
             },
           });
         } catch (dbError) {
-          // Ignore database errors if connection was reset
           if (!isAbortError(dbError)) {
             console.error("Error saving response:", dbError);
           }
@@ -142,7 +158,48 @@ export async function POST(
       },
     });
 
-    return result.toTextStreamResponse();
+    const stream = result.toTextStreamResponse();
+    const originalBody = stream.body;
+    
+    if (!originalBody) {
+      return stream;
+    }
+
+    const reader = originalBody.getReader();
+    const encoder = new TextEncoder();
+    
+    const newStream = new ReadableStream({
+      async start(controller) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              try {
+                const finalMetadata = await Promise.race([
+                  metadataPromise,
+                  new Promise<typeof metadata>((resolve) => setTimeout(() => resolve(metadata), 2000)),
+                ]);
+                
+                if (finalMetadata) {
+                  const metadataJson = JSON.stringify(finalMetadata);
+                  controller.enqueue(encoder.encode(`\n\n__METADATA__${metadataJson}__METADATA__`));
+                }
+              } catch (e) {
+              }
+              controller.close();
+              break;
+            }
+            controller.enqueue(value);
+          }
+        } catch (error) {
+          controller.error(error);
+        }
+      },
+    });
+
+    return new Response(newStream, {
+      headers: stream.headers,
+    });
   } catch (error) {
     // If client disconnected, just return silently
     if (isAbortError(error) || request.signal.aborted) {

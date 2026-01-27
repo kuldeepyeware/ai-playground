@@ -11,30 +11,70 @@ export function useStreamingState(chatId: string) {
     useState<OptimisticPrompt | null>(null);
   const completedStreamsRef = useRef<Map<string, Set<string>>>(new Map());
   const streamingStartedRef = useRef<Set<string>>(new Set());
+  const isFirstPromptRef = useRef<Map<string, boolean>>(new Map());
 
   // Reset tracking when chat ID changes
   useEffect(() => {
     streamingStartedRef.current = new Set();
     completedStreamsRef.current = new Map();
+    isFirstPromptRef.current = new Map();
 
     return () => {
       streamingStartedRef.current = new Set();
       completedStreamsRef.current = new Map();
+      isFirstPromptRef.current = new Map();
     };
   }, [chatId]);
 
   const isStreaming = streamingPromptIds.size > 0;
 
   const handlePromptSubmit = (promptId: string, promptContent: string) => {
-    // Show optimistic prompt immediately
     setOptimisticPrompt({ id: promptId, content: promptContent });
 
-    // Mark as streaming
     streamingStartedRef.current.add(promptId);
     setStreamingPromptIds((prev) => new Set(prev).add(promptId));
 
-    // Initialize completion tracking for this prompt
     completedStreamsRef.current.set(promptId, new Set());
+
+    const currentChat = queryClient.getQueryData<{ prompts: Prompt[] } | null>([
+      "get-chat",
+      chatId,
+    ]);
+
+    const isFirstPrompt =
+      !currentChat || (currentChat.prompts && currentChat.prompts.length === 0);
+    isFirstPromptRef.current.set(promptId, isFirstPrompt);
+
+    if (currentChat) {
+      const promptExists = currentChat.prompts.some((p) => p.id === promptId);
+      if (!promptExists) {
+        queryClient.setQueryData<{ prompts: Prompt[] }>(["get-chat", chatId], {
+          ...currentChat,
+          prompts: [
+            ...currentChat.prompts,
+            {
+              id: promptId,
+              content: promptContent,
+              responses: [],
+            },
+          ],
+        });
+      }
+    } else {
+      queryClient.setQueryData<{ id: string; prompts: Prompt[] }>(
+        ["get-chat", chatId],
+        {
+          id: chatId,
+          prompts: [
+            {
+              id: promptId,
+              content: promptContent,
+              responses: [],
+            },
+          ],
+        },
+      );
+    }
   };
 
   const handleStreamComplete = (promptId: string, provider: string) => {
@@ -45,37 +85,19 @@ export function useStreamingState(chatId: string) {
     completedStreamsRef.current.get(promptId)!.add(provider);
 
     if (completedStreamsRef.current.get(promptId)!.size === 3) {
-      queryClient
-        .fetchQuery({
-          queryKey: ["get-chat", chatId],
-          queryFn: async () => {
-            const { getChatById } = await import("@/actions/chat");
-            const result = await getChatById(chatId);
-            if (result.error) {
-              return null;
-            }
-            return result.chat;
-          },
-        })
-        .then((updatedChat) => {
-          const foundPrompt =
-            updatedChat?.prompts?.find((p: Prompt) => p.id === promptId) ??
-            null;
+      setStreamingPromptIds((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(promptId);
+        return newSet;
+      });
 
-          const hasResponses = (foundPrompt?.responses?.length ?? 0) > 0;
+      const isFirstPrompt = isFirstPromptRef.current.get(promptId) ?? false;
 
-          if (hasResponses) {
-            setStreamingPromptIds((prev) => {
-              const newSet = new Set(prev);
-              newSet.delete(promptId);
-              return newSet;
-            });
-            setOptimisticPrompt(null);
-          }
-        })
-        .catch((error) => {
-          console.error("Error fetching chat after stream complete:", error);
-        });
+      if (isFirstPrompt) {
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ["get-chats"] });
+        }, 500);
+      }
     }
   };
 
@@ -94,8 +116,8 @@ export function useStreamingState(chatId: string) {
     });
   };
 
-  const clearOptimisticPromptIfMatches = (promptContent: string) => {
-    if (optimisticPrompt?.content === promptContent) {
+  const clearOptimisticPromptIfMatches = (promptId: string) => {
+    if (optimisticPrompt?.id === promptId) {
       setOptimisticPrompt(null);
     }
   };

@@ -4,13 +4,20 @@ import { motion } from "framer-motion";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { AlertCircle, RefreshCw } from "lucide-react";
 
+interface StreamingMetadata {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cost: number;
+}
+
 interface StreamingResponseProps {
   provider: "openai" | "anthropic" | "xai";
   prompt: string;
   promptId: string;
   chatId: string;
-  onComplete?: (content: string) => void;
-  inline?: boolean; // If true, render without container (for use inside ResponseGrid)
+  onComplete?: (content: string, metadata?: StreamingMetadata) => void;
+  inline?: boolean;
 }
 
 const PROVIDER_CONFIG = {
@@ -132,27 +139,39 @@ export function StreamingResponse({
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullContent = "";
+      let metadata: StreamingMetadata | undefined;
 
       try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          // Check if component is still mounted - cancel but still call onComplete
           if (!isMountedRef.current) {
             reader.cancel();
-            onComplete?.(fullContent);
+            onComplete?.(fullContent, metadata);
             return;
           }
 
           const chunk = decoder.decode(value, { stream: true });
-          fullContent += chunk;
+          
+          const metadataMatch = chunk.match(/__METADATA__({.*?})__METADATA__/);
+          if (metadataMatch) {
+            try {
+              metadata = JSON.parse(metadataMatch[1]);
+              const contentBeforeMetadata = chunk.split("__METADATA__")[0];
+              fullContent += contentBeforeMetadata;
+            } catch (e) {
+              fullContent += chunk;
+            }
+          } else {
+            fullContent += chunk;
+          }
+          
           setContent(fullContent);
         }
       } catch (readError) {
-        // Handle stream read errors gracefully
         if (!isMountedRef.current) {
-          onComplete?.(fullContent);
+          onComplete?.(fullContent, metadata);
           return;
         }
         throw readError;
@@ -163,8 +182,7 @@ export function StreamingResponse({
       if (isMountedRef.current) {
         setIsLoading(false);
       }
-      // Always call onComplete to ensure proper cleanup, even if unmounted
-      onComplete?.(fullContent);
+      onComplete?.(fullContent, metadata);
     } catch (err: unknown) {
       isStreamingRef.current = false;
 

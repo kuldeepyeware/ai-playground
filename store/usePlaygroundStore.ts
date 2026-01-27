@@ -10,6 +10,13 @@ interface StreamingState {
   xai: { content: string; isLoading: boolean; error: string | null };
 }
 
+interface PendingPrompt {
+  chatId: string;
+  promptId: string;
+  content: string;
+  isNew: boolean;
+}
+
 interface PlaygroundState {
   prompt: string;
   isLoading: boolean;
@@ -17,6 +24,7 @@ interface PlaygroundState {
   streaming: StreamingState;
   error: string | null;
   history: HistoryItem[];
+  pendingPrompt: PendingPrompt | null;
   setPrompt: (prompt: string) => void;
   setLoading: (loading: boolean) => void;
   setResults: (results: ModelResponse[]) => void;
@@ -37,6 +45,8 @@ interface PlaygroundState {
   ) => void;
   resetStreaming: () => void;
   runComparison: () => Promise<void>;
+  setPendingPrompt: (prompt: PendingPrompt) => void;
+  clearPendingPrompt: () => void;
 }
 
 const initialStreamingState: StreamingState = {
@@ -54,6 +64,7 @@ export const usePlaygroundStore = create<PlaygroundState>()(
       streaming: initialStreamingState,
       error: null,
       history: [],
+      pendingPrompt: null,
 
       setPrompt: (prompt: string) => set({ prompt }),
       setLoading: (isLoading: boolean) => set({ isLoading }),
@@ -96,6 +107,9 @@ export const usePlaygroundStore = create<PlaygroundState>()(
         })),
 
       resetStreaming: () => set({ streaming: initialStreamingState }),
+
+      setPendingPrompt: (prompt: PendingPrompt) => set({ pendingPrompt: prompt }),
+      clearPendingPrompt: () => set({ pendingPrompt: null }),
 
       runComparison: async () => {
         const {

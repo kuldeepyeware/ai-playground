@@ -34,13 +34,12 @@ export function useAutoDetectStreaming({
       const promptIds = promptsWithoutResponses.map((p) => p.id);
       startStreamingForPrompts(promptIds);
 
-      // Clear optimistic prompt if it matches a real prompt
       if (optimisticPrompt) {
         const matchingPrompt = promptsWithoutResponses.find(
-          (p) => p.content === optimisticPrompt.content,
+          (p) => p.id === optimisticPrompt.id,
         );
-        if (matchingPrompt) {
-          clearOptimisticPromptIfMatches(optimisticPrompt.content);
+        if (matchingPrompt && (matchingPrompt.responses?.length ?? 0) === 0) {
+          clearOptimisticPromptIfMatches(optimisticPrompt.id);
         }
       }
 

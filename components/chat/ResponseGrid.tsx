@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowDown, ArrowUp, Hash, DollarSign } from "lucide-react";
 import { StreamingResponse } from "@/components/chat/StreamingResponse";
@@ -13,11 +14,18 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   xai: "xAI",
 };
 
+interface ResponseMetadata {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cost: number;
+}
+
 interface ResponseGridProps {
   prompt: Prompt;
   chatId: string;
   isStreaming: boolean;
-  onStreamComplete: (promptId: string, provider: string) => void;
+  onStreamComplete: (promptId: string, provider: string, metadata?: ResponseMetadata) => void;
 }
 
 export function ResponseGrid({
@@ -26,6 +34,7 @@ export function ResponseGrid({
   isStreaming,
   onStreamComplete,
 }: ResponseGridProps) {
+  const [metadataByProvider, setMetadataByProvider] = useState<Map<string, ResponseMetadata>>(new Map());
   const responsesByProvider = new Map(
     (prompt.responses || []).map((r) => [r.provider, r]),
   );
@@ -68,70 +77,83 @@ export function ResponseGrid({
 
             <div className='flex flex-col flex-1 p-4 min-h-[200px]'>
               <div className='flex-1 text-(--text-primary) whitespace-pre-wrap wrap-break-word'>
-                {isCurrentlyStreaming ? (
+                {!hasResponse ? (
                   <StreamingResponse
                     provider={provider.id}
                     prompt={prompt.content}
                     promptId={prompt.id}
                     chatId={chatId}
-                    onComplete={() => onStreamComplete(prompt.id, provider.id)}
+                    onComplete={(content, metadata) => {
+                      if (metadata) {
+                        setMetadataByProvider(prev => {
+                          const newMap = new Map(prev);
+                          newMap.set(provider.id, metadata);
+                          return newMap;
+                        });
+                      }
+                      onStreamComplete(prompt.id, provider.id, metadata);
+                    }}
                     inline={true}
                   />
-                ) : !hasResponse ? (
-                  <div className='flex items-center justify-center h-full text-(--text-muted) italic'>
-                    {isStreaming ? "Preparing..." : "No response available"}
-                  </div>
                 ) : response.status === "error" ? (
                   <div className='text-(--error) text-sm bg-(--error)/10 rounded-lg p-3 border border-(--error)/20'>
                     {response.error || "An error occurred"}
                   </div>
                 ) : (
-                  /* We remove the entrance animation here so the text doesn't 'pop' twice */
                   <span>{response.content}</span>
                 )}
               </div>
 
-              {/* Metrics Section - This is the only part that should animate in */}
               <AnimatePresence>
-                {hasResponse && response.status === "success" && (
+                {(hasResponse && response.status === "success") || metadataByProvider.has(provider.id) ? (
                   <motion.div
                     initial={{ opacity: 0, y: 5 }}
                     animate={{ opacity: 1, y: 0 }}
                     className='mt-auto pt-3 border-t border-(--border-secondary) shrink-0 space-y-2'>
-                    <div className='flex items-center gap-1.5 text-[10px] w-full min-w-0'>
-                      <MetricBadge
-                        icon={<ArrowDown className='h-3 w-3' />}
-                        label='Prompt'
-                        value={response.promptTokens}
-                      />
-                      <MetricBadge
-                        icon={<ArrowUp className='h-3 w-3' />}
-                        label='Comp'
-                        value={response.completionTokens}
-                      />
-                      <MetricBadge
-                        icon={<Hash className='h-3 w-3' />}
-                        label='Total'
-                        value={
-                          (response.promptTokens || 0) +
-                          (response.completionTokens || 0)
-                        }
-                      />
-                    </div>
+                    {(() => {
+                      const meta = hasResponse && response.status === "success" 
+                        ? {
+                            promptTokens: response.promptTokens || 0,
+                            completionTokens: response.completionTokens || 0,
+                            totalTokens: (response.promptTokens || 0) + (response.completionTokens || 0),
+                            cost: response.cost || 0,
+                          }
+                        : metadataByProvider.get(provider.id)!;
+                      
+                      return (
+                        <>
+                          <div className='flex items-center gap-1.5 text-[10px] w-full min-w-0'>
+                            <MetricBadge
+                              icon={<ArrowDown className='h-3 w-3' />}
+                              label='Prompt'
+                              value={meta.promptTokens}
+                            />
+                            <MetricBadge
+                              icon={<ArrowUp className='h-3 w-3' />}
+                              label='Comp'
+                              value={meta.completionTokens}
+                            />
+                            <MetricBadge
+                              icon={<Hash className='h-3 w-3' />}
+                              label='Total'
+                              value={meta.totalTokens}
+                            />
+                          </div>
 
-                    <div className='flex justify-end'>
-                      <div className='flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/10 border border-primary/20 text-[10px]'>
-                        <DollarSign className='h-3 w-3 text-primary shrink-0' />
-                        <span className='text-(--text-muted)'>Cost:</span>
-                        <span className='text-primary font-medium'>
-                          {response.cost !== undefined
-                            ? formatCost(response.cost)
-                            : "$0.0000"}
-                        </span>
-                      </div>
-                    </div>
+                          <div className='flex justify-end'>
+                            <div className='flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/10 border border-primary/20 text-[10px]'>
+                              <DollarSign className='h-3 w-3 text-primary shrink-0' />
+                              <span className='text-(--text-muted)'>Cost:</span>
+                              <span className='text-primary font-medium'>
+                                {formatCost(meta.cost)}
+                              </span>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </motion.div>
-                )}
+                ) : null}
               </AnimatePresence>
             </div>
           </div>

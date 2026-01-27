@@ -6,9 +6,14 @@ interface SubmitPromptOptions {
   onError?: (error: string) => void;
 }
 
+interface SubmitPromptVariables {
+  promptText: string;
+  promptId?: string;
+}
+
 export function useSubmitPrompt(chatId: string, options?: SubmitPromptOptions) {
   return useMutation({
-    mutationFn: async (promptText: string) => {
+    mutationFn: async ({ promptText, promptId }: SubmitPromptVariables) => {
       if (!chatId) {
         throw new Error("Chat ID is required");
       }
@@ -17,7 +22,7 @@ export function useSubmitPrompt(chatId: string, options?: SubmitPromptOptions) {
         throw new Error("Prompt cannot be empty");
       }
 
-      const result = await submitPrompt(chatId, promptText);
+      const result = await submitPrompt(chatId, promptText, promptId);
       
       if (result.error) {
         throw new Error(result.error);

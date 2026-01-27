@@ -20,10 +20,12 @@ import {
 import { useAutoScroll } from "@/hooks/useAutoScroll";
 import { useStreamingState } from "@/hooks/useStreamingState";
 import { useAutoDetectStreaming } from "@/hooks/useAutoDetectStreaming";
+import { usePlaygroundStore } from "@/store/usePlaygroundStore";
 
 const ChatPage = ({ params }: { params: Promise<{ id: string }> }) => {
   const { id } = use(params);
   const { data: chat, isLoading, error: chatError } = useGetChat(id);
+  const { pendingPrompt, clearPendingPrompt } = usePlaygroundStore();
   const [hasStartedStreaming, setHasStartedStreaming] = useState(false);
 
   // Hooks for managing state
@@ -40,25 +42,29 @@ const ChatPage = ({ params }: { params: Promise<{ id: string }> }) => {
 
   const { chatContainerRef, scrollToBottom } = useAutoScroll(isStreaming);
 
-  // Start streaming immediately if prompt is in sessionStorage (new chat with frontend-generated ID)
-  // This allows streaming to begin before chat data is created/loaded
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const storedPrompt = sessionStorage.getItem(`chat_${id}_prompt`);
-    if (storedPrompt && !hasStartedStreaming && !isLoading) {
-      // Generate promptId on the chat page
-      const promptId = crypto.randomUUID();
-
-      // Start streaming immediately with the prompt content
-      handlePromptSubmit(promptId, storedPrompt);
+    if (
+      pendingPrompt &&
+      pendingPrompt.chatId === id &&
+      !hasStartedStreaming &&
+      !isLoading &&
+      pendingPrompt.isNew
+    ) {
+      handlePromptSubmit(pendingPrompt.promptId, pendingPrompt.content);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setHasStartedStreaming(true);
-
-      // Clean up sessionStorage after starting
-      sessionStorage.removeItem(`chat_${id}_prompt`);
+      clearPendingPrompt();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, hasStartedStreaming, isLoading]);
+  }, [
+    id,
+    pendingPrompt,
+    hasStartedStreaming,
+    isLoading,
+    handlePromptSubmit,
+    clearPendingPrompt,
+  ]);
 
   // Auto-detect prompts without responses
   useAutoDetectStreaming({
@@ -114,8 +120,6 @@ const ChatPage = ({ params }: { params: Promise<{ id: string }> }) => {
                       </div>
                     ))}
 
-                    {/* Render optimistic prompt if it doesn't match any existing prompt */}
-                    {/* This handles both new chats and existing chats with new prompts */}
                     {optimisticPrompt &&
                       !chat?.prompts.find(
                         (p) => p.id === optimisticPrompt.id,
@@ -125,14 +129,14 @@ const ChatPage = ({ params }: { params: Promise<{ id: string }> }) => {
                             content={optimisticPrompt.content}
                             isUser={true}
                           />
-                          {streamingPromptIds.has(optimisticPrompt.id) && (
-                            <ResponseGrid
-                              prompt={optimisticPrompt}
-                              chatId={id}
-                              isStreaming={true}
-                              onStreamComplete={handleStreamComplete}
-                            />
-                          )}
+                          <ResponseGrid
+                            prompt={optimisticPrompt}
+                            chatId={id}
+                            isStreaming={streamingPromptIds.has(
+                              optimisticPrompt.id,
+                            )}
+                            onStreamComplete={handleStreamComplete}
+                          />
                         </div>
                       )}
 

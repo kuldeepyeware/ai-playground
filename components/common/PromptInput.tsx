@@ -6,7 +6,6 @@ import { ArrowUpIcon, AlertCircle } from "lucide-react";
 import { useUser, SignInButton } from "@clerk/nextjs";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createChat } from "@/actions/chat";
 import { useSubmitPrompt } from "@/hooks/useSubmitPrompt";
 import { generateId } from "@/lib/id-generator";
 
@@ -21,24 +20,26 @@ export function PromptInput({
   onSubmit,
   disabled = false,
 }: PromptInputProps) {
-  const { prompt, setPrompt, isLoading, error } = usePlaygroundStore();
+  const { prompt, setPrompt, isLoading, error, setPendingPrompt, clearPendingPrompt } = usePlaygroundStore();
   const { isSignedIn, isLoaded } = useUser();
   const signInButtonRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
-  const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  // Always call the hook, but only use it if chatId exists
+  const promptContentRef = useRef<string>("");
+
   const submitPromptMutation = useSubmitPrompt(chatId || "", {
     onSuccess: (promptId) => {
-      const submittedPrompt = prompt;
+      const submittedPrompt = promptContentRef.current;
       setPrompt("");
       setLocalError(null);
+      clearPendingPrompt();
       onSubmit?.(promptId, submittedPrompt);
     },
     onError: (error) => {
       console.error("Error submitting prompt:", error);
       setLocalError(error);
+      clearPendingPrompt();
     },
   });
 
@@ -67,53 +68,29 @@ export function PromptInput({
       return;
     }
 
-    // If we're in a chat context, submit the prompt
+    const currentPrompt = prompt.trim();
+    
     if (chatId) {
-      submitPromptMutation.mutate(prompt);
+      const promptId = generateId();
+      promptContentRef.current = currentPrompt;
+      setPrompt("");
+      submitPromptMutation.mutate({ promptText: currentPrompt, promptId });
       return;
     }
 
-    // Otherwise, create a new chat WITH the prompt and redirect
-    const currentPrompt = prompt.trim();
-    // Generate chatId on frontend for instant redirect
     const frontendChatId = generateId();
+    const promptId = generateId();
 
-    // Clear prompt immediately for better UX
+    setPendingPrompt({
+      chatId: frontendChatId,
+      promptId,
+      content: currentPrompt,
+      isNew: true,
+    });
+
     setPrompt("");
 
-    // Redirect IMMEDIATELY with frontend-generated chatId
-    // Prompt content will be stored in sessionStorage for the chat page to retrieve
-    // This allows streaming to start before backend creates the chat
-    sessionStorage.setItem(`chat_${frontendChatId}_prompt`, currentPrompt);
     router.push(`/chat/${frontendChatId}`);
-
-    // Create chat in background (don't block UI)
-    setIsCreatingChat(true);
-    createChat(currentPrompt, frontendChatId)
-      .then((result) => {
-        if (result.error) {
-          console.error("Failed to create chat:", result.error);
-          setLocalError(result.error || "Failed to create chat");
-          // Clean up sessionStorage on error
-          sessionStorage.removeItem(`chat_${frontendChatId}_prompt`);
-          // Optionally redirect back on error
-          router.push("/chat");
-        } else {
-          // Clean up sessionStorage after successful creation
-          sessionStorage.removeItem(`chat_${frontendChatId}_prompt`);
-        }
-      })
-      .catch((error) => {
-        console.error("Error creating chat:", error);
-        setLocalError(
-          error instanceof Error ? error.message : "Failed to create chat",
-        );
-        sessionStorage.removeItem(`chat_${frontendChatId}_prompt`);
-        router.push("/chat");
-      })
-      .finally(() => {
-        setIsCreatingChat(false);
-      });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -167,7 +144,6 @@ export function PromptInput({
               disabled={
                 disabled ||
                 isLoading ||
-                isCreatingChat ||
                 (chatId ? submitPromptMutation.isPending : false)
               }
               rows={4}
@@ -188,13 +164,11 @@ export function PromptInput({
                 disabled={
                   disabled ||
                   isLoading ||
-                  isCreatingChat ||
                   (chatId ? submitPromptMutation.isPending : false) ||
                   !prompt.trim()
                 }
                 className='flex h-8 w-8 items-center justify-center rounded-full bg-primary text-white transition-all hover:bg-(--primary-hover) disabled:cursor-not-allowed disabled:opacity-50'>
                 {isLoading ||
-                isCreatingChat ||
                 (chatId ? submitPromptMutation.isPending : false) ? (
                   <svg
                     className='h-4 w-4 animate-spin'
