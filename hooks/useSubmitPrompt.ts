@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { submitPrompt } from "@/actions/chat";
+import { generateId } from "@/lib/id-generator";
 
 interface SubmitPromptOptions {
   onSuccess?: (promptId: string) => void;
@@ -22,17 +22,9 @@ export function useSubmitPrompt(chatId: string, options?: SubmitPromptOptions) {
         throw new Error("Prompt cannot be empty");
       }
 
-      const result = await submitPrompt(chatId, promptText, promptId);
-      
-      if (result.error) {
-        throw new Error(result.error);
-      }
-
-      if (!result.promptId) {
-        throw new Error("Failed to create prompt");
-      }
-
-      return result.promptId;
+      // Generate promptId if not provided
+      // The API route will handle saving the prompt to the database
+      return promptId || generateId();
     },
     onSuccess: (promptId) => {
       // Don't invalidate queries here - let the streaming completion handle it

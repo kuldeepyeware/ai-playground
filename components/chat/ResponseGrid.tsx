@@ -35,12 +35,14 @@ interface ResponseGridProps {
 export function ResponseGrid({
   prompt,
   chatId,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   isStreaming,
   onStreamComplete,
 }: ResponseGridProps) {
   const [metadataByProvider, setMetadataByProvider] = useState<
     Map<string, ResponseMetadata>
+  >(new Map());
+  const [streamedContentByProvider, setStreamedContentByProvider] = useState<
+    Map<string, string>
   >(new Map());
   const responsesByProvider = new Map(
     (prompt.responses || []).map((r) => [r.provider, r]),
@@ -51,6 +53,8 @@ export function ResponseGrid({
       {PROVIDERS.map((provider) => {
         const response = responsesByProvider.get(provider.id);
         const hasResponse = !!response;
+        const streamedContent = streamedContentByProvider.get(provider.id);
+        const hasStreamedContent = !!streamedContent;
 
         return (
           <div
@@ -81,13 +85,21 @@ export function ResponseGrid({
 
             <div className='flex flex-col flex-1 p-4 min-h-[200px]'>
               <div className='flex-1 text-(--text-primary) whitespace-pre-wrap wrap-break-word'>
-                {!hasResponse ? (
+                {!hasResponse && isStreaming ? (
                   <StreamingResponse
                     provider={provider.id}
                     prompt={prompt.content}
                     promptId={prompt.id}
                     chatId={chatId}
                     onComplete={(content, metadata) => {
+                      // Store streamed content to show until DB data loads
+                      if (content) {
+                        setStreamedContentByProvider((prev) => {
+                          const newMap = new Map(prev);
+                          newMap.set(provider.id, content);
+                          return newMap;
+                        });
+                      }
                       if (metadata) {
                         setMetadataByProvider((prev) => {
                           const newMap = new Map(prev);
@@ -99,12 +111,22 @@ export function ResponseGrid({
                     }}
                     inline={true}
                   />
-                ) : response.status === "error" ? (
-                  <div className='text-(--error) text-sm bg-(--error)/10 rounded-lg p-3 border border-(--error)/20'>
-                    {response.error || "An error occurred"}
-                  </div>
+                ) : hasResponse ? (
+                  // DB data available - show it (this will replace streamed content seamlessly)
+                  response.status === "error" ? (
+                    <div className='text-(--error) text-sm bg-(--error)/10 rounded-lg p-3 border border-(--error)/20'>
+                      {response.error || "An error occurred"}
+                    </div>
+                  ) : (
+                    <span>{response.content}</span>
+                  )
+                ) : hasStreamedContent ? (
+                  // Streaming completed but DB data not loaded yet - show streamed content
+                  <span>{streamedContent}</span>
                 ) : (
-                  <span>{response.content}</span>
+                  <div className='text-(--text-muted) text-sm'>
+                    No response yet
+                  </div>
                 )}
               </div>
 

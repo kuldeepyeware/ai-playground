@@ -91,6 +91,11 @@ export function useStreamingState(chatId: string) {
         return newSet;
       });
 
+      // Refetch chat data to get the saved responses
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["get-chat", chatId] });
+      }, 1000);
+
       const isFirstPrompt = isFirstPromptRef.current.get(promptId) ?? false;
 
       if (isFirstPrompt) {

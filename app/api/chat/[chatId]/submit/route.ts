@@ -74,23 +74,51 @@ export async function POST(
     return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
   }
 
-  // Check if we already have a response for this prompt/provider combo
-  // This prevents duplicate responses on retry/page refresh
+  // Optimized check: Only query if we might have a cached response
+  // Uses composite index on [promptId, provider] for fast lookup
   const existingResponse = await prisma.response.findFirst({
     where: { promptId, provider },
-    select: { id: true, status: true, content: true }, // Only select needed fields
+    select: {
+      id: true,
+      status: true,
+      content: true,
+      promptTokens: true,
+      completionTokens: true,
+      totalTokens: true,
+      cost: true,
+    },
+    // Use the composite index efficiently
+    orderBy: { id: "desc" }, // Get most recent if multiple exist
   });
 
   if (existingResponse) {
     if (existingResponse.status === "success" && existingResponse.content) {
-      return new Response(existingResponse.content, {
+      // Return cached content in streaming format with metadata
+      // Include metadata to match streaming response format
+      const metadata = {
+        promptTokens: existingResponse.promptTokens,
+        completionTokens: existingResponse.completionTokens,
+        totalTokens: existingResponse.totalTokens,
+        cost: existingResponse.cost,
+      };
+      const metadataJson = JSON.stringify(metadata);
+      const responseBody = `${existingResponse.content}\n\n__METADATA__${metadataJson}__METADATA__`;
+
+      return new Response(responseBody, {
         headers: { "Content-Type": "text/plain" },
       });
     }
 
-    // If it was an error, let it retry
+    // If it was an error, delete and allow retry (non-blocking)
     if (existingResponse.status === "error") {
-      await prisma.response.delete({ where: { id: existingResponse.id } });
+      // Use deleteMany for better performance, fire and forget
+      prisma.response
+        .deleteMany({ where: { id: existingResponse.id } })
+        .catch((err) => {
+          if (!isAbortError(err)) {
+            console.error("Error deleting failed response:", err);
+          }
+        });
     }
   }
 

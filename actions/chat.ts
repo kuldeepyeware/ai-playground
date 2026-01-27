@@ -73,69 +73,6 @@ export async function getChatById(chatId: string) {
   }
 }
 
-export async function submitPrompt(chatId: string, prompt: string, providedPromptId?: string) {
-  try {
-    const { userId } = await auth();
-
-    if (!userId) {
-      return { error: "Unauthorized", promptId: null };
-    }
-
-    if (!prompt.trim()) {
-      return { error: "Prompt cannot be empty", promptId: null };
-    }
-
-    const result = await prisma.$transaction(async (tx) => {
-      const chat = await tx.chat.findFirst({
-        where: {
-          id: chatId,
-          userId,
-        },
-        select: { id: true, title: true },
-      });
-
-      if (!chat) {
-        throw new Error("Chat not found");
-      }
-
-      const promptId = providedPromptId || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`);
-
-      const createdPrompt = await tx.prompt.upsert({
-        where: { id: promptId },
-        create: {
-          id: promptId,
-          chatId,
-          content: prompt,
-        },
-        update: {},
-      });
-
-      const updateData: { updatedAt: Date; title?: string } = {
-        updatedAt: new Date(),
-      };
-
-      if (!chat.title) {
-        updateData.title =
-          prompt.slice(0, 50) + (prompt.length > 50 ? "..." : "");
-      }
-
-      await tx.chat.update({
-        where: { id: chatId },
-        data: updateData,
-      });
-
-      return { promptId: createdPrompt.id };
-    });
-
-    return { error: null, promptId: result.promptId };
-  } catch (error) {
-    console.error("Error submitting prompt:", error);
-    return {
-      error: error instanceof Error ? error.message : "Failed to submit prompt",
-      promptId: null,
-    };
-  }
-}
 
 export async function deleteChat(chatId: string) {
   try {
