@@ -115,9 +115,10 @@ The application implements parallel streaming from three AI providers:
   - Optimistic updates support
   - Background synchronization
 
-- **Zustand**: Client-side state (used primarily for landing page playground)
+- **Zustand**: Client-side state (prompt input, pending prompts, landing page playground)
   - Simple, lightweight
-  - Persisted to localStorage for history
+  - Persisted to localStorage for history (history only)
+  - Manages `pendingPrompt` state for new chat navigation
 
 - **React State**: Component-local state for UI interactions
   - Streaming progress
@@ -330,7 +331,8 @@ The application implements parallel streaming from three AI providers:
 **Implementation**:
 
 - `useStreamingState` hook manages optimistic prompts
-- SessionStorage used for new chats (before DB record exists)
+- Zustand store's `pendingPrompt` state used for new chats (before DB record exists)
+- React Query cache updated optimistically for immediate UI feedback
 - Automatic cleanup when database data arrives
 
 ## Future Improvements
