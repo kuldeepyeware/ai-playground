@@ -3,6 +3,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/db";
 import { revalidatePath } from "next/cache";
+import type { Chat } from "@/types/chat";
 
 export async function getUserChats() {
   try {
@@ -34,7 +35,9 @@ export async function getUserChats() {
   }
 }
 
-export async function getChatById(chatId: string) {
+export async function getChatById(
+  chatId: string,
+): Promise<{ error: string | null; chat: Chat | null }> {
   try {
     const { userId } = await auth();
 
@@ -63,7 +66,7 @@ export async function getChatById(chatId: string) {
       return { error: "Chat not found", chat: null };
     }
 
-    return { error: null, chat };
+    return { error: null, chat: chat as Chat };
   } catch (error) {
     console.error("Error fetching chat:", error);
     return {
@@ -72,7 +75,6 @@ export async function getChatById(chatId: string) {
     };
   }
 }
-
 
 export async function deleteChat(chatId: string) {
   try {

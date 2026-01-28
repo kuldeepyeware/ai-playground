@@ -1,18 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
 import { getChatById } from "@/actions/chat";
+import type { Chat } from "@/types/chat";
 
 export function useGetChat(chatId: string | undefined) {
-  return useQuery({
+  return useQuery<Chat | null>({
     queryKey: ["get-chat", chatId],
     queryFn: async () => {
       if (!chatId) {
         return null;
       }
       const result = await getChatById(chatId);
-      if (result.error) {
+      if (result.error || !result.chat) {
         return null;
       }
-      return result.chat;
+      return result.chat as Chat;
     },
     enabled: !!chatId,
     staleTime: 1000 * 60 * 5, // 5 minutes

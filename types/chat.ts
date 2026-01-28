@@ -19,6 +19,9 @@ export interface Prompt {
 export interface Chat {
   id: string;
   title?: string | null;
+  userId?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
   prompts: Prompt[];
 }
 
